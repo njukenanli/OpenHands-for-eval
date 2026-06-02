@@ -25,7 +25,6 @@ import tempfile
 import threading
 import time
 import tomllib
-from contextlib import chdir
 from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
@@ -508,7 +507,7 @@ class BuildCommandError(subprocess.CalledProcessError):
 def _extract_tarball(tarball: Path, dest: Path) -> None:
     dest = dest.resolve()
     dest.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(tarball, "r:gz") as tar, chdir(dest):
+    with tarfile.open(tarball, "r:gz") as tar:
         # Pre-validate entries
         for m in tar.getmembers():
             name = m.name.lstrip("./")
@@ -516,7 +515,7 @@ def _extract_tarball(tarball: Path, dest: Path) -> None:
             if p.is_absolute() or ".." in p.parts:
                 raise RuntimeError(f"Unsafe path in sdist: {m.name}")
         # Safe(-r) extraction: no symlinks/devices
-        tar.extractall(path=".", filter="data")
+        tar.extractall(path=dest, filter="data")
 
 
 def _make_build_context(

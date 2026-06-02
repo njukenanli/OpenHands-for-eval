@@ -30,9 +30,7 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.acp import is_acp_agent
-from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
-from benchmarks.utils.iterative import aggregate_results
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
 from benchmarks.utils.litellm_proxy import (
     create_virtual_key,
@@ -118,7 +116,7 @@ class PendingInstance:
     start_time: float | None = None  # Set when worker thread begins executing
 
 
-OnResult = Callable[[EvalInstance, EvalOutput], None]
+OnResult = Callable[[EvalInstance, EvalOutput], Coroutine[Any, Any, None]]
 
 
 class Evaluation(ABC, BaseModel):
@@ -202,10 +200,6 @@ class Evaluation(ABC, BaseModel):
             len(outputs),
         )
 
-    @property
-    def output_path(self) -> str:
-        return os.path.join(self.metadata.eval_output_dir, OUTPUT_FILENAME)
-
     def _conversation_dir(self, instance_id: str) -> Path:
         return Path(self.metadata.eval_output_dir) / "conversations" / instance_id
 
@@ -245,6 +239,7 @@ class Evaluation(ABC, BaseModel):
                 }
 
         preds_path = Path(self.metadata.eval_output_dir) / "preds.json"
+        preds_path.parent.mkdir(parents=True, exist_ok=True)
         with preds_path.open("w", encoding="utf-8") as f:
             json.dump(predictions, f, indent=2)
         return preds_path
@@ -693,27 +688,11 @@ class Evaluation(ABC, BaseModel):
                 logger.info("Adjusting temperature from 0.0 to 0.1 for retry attempt")
                 self.metadata.llm.temperature = 0.1
 
-            # Create attempt-specific output callback and file write lock
             attempt_outputs: List[EvalOutput] = []
-            file_lock = asyncio.Lock()
 
             async def attempt_on_result_async(
                 instance: EvalInstance, out: EvalOutput
             ) -> None:
-                # Write to attempt-specific file (thread-safe with lock)
-                attempt_file = os.path.join(
-                    self.metadata.eval_output_dir,
-                    f"output.critic_attempt_{attempt}.jsonl",
-                )
-                async with file_lock:
-                    try:
-                        with open(attempt_file, "a") as f:
-                            f.write(out.model_dump_json() + "\n")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to write to attempt file {attempt_file}: {e}"
-                        )
-
                 patch_path = self._write_patch_file(out)
                 if patch_path is not None:
                     logger.info(
@@ -723,17 +702,8 @@ class Evaluation(ABC, BaseModel):
                     )
                 self._write_predictions_from_patch_files()
 
-                # Call original callback if provided
                 if on_result:
-                    try:
-                        on_result(instance, out)
-                    except Exception as cb_err:
-                        logger.warning("on_result callback failed: %s", cb_err)
-
-                # Release heavy history data from memory now that it's
-                # persisted to disk. The critic and aggregator read history
-                # from the attempt files, not from this in-memory list.
-                out.history = []
+                    await on_result(instance, out)
 
                 attempt_outputs.append(out)
 
@@ -753,15 +723,6 @@ class Evaluation(ABC, BaseModel):
                 f"{len(attempt_outputs)} instances processed"
             )
             all_outputs.extend(attempt_outputs)
-
-        # Aggregate results from all attempts
-        logger.info("Aggregating results from all attempts")
-        aggregate_results(
-            output_dir=self.metadata.eval_output_dir,
-            n_critic_runs=self.metadata.n_critic_runs,
-            critic=self.metadata.critic,
-            final_output_file="output.jsonl",
-        )
 
         logger.info(
             f"Evaluation complete: {total_instances} total instances, "

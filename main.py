@@ -13,7 +13,6 @@ from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.swebench.run_infer import SWEBenchEvaluation
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.critics import create_critic
-from benchmarks.utils.evaluation_utils import get_default_on_result_writer
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalMetadata
 from openhands.sdk import get_logger
@@ -160,18 +159,20 @@ def main(argv: list[str] | None = None) -> None:
         condenser_keep_first=args.condenser_keep_first,
     )
 
+    os.environ["CONVERSATION_TIMEOUT"] = str(args.instance_timeout)
+
     evaluator = SWEBenchEvaluation(
         metadata=metadata,
         num_workers=args.num_workers,
         instance_timeout=args.instance_timeout,
     )
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    evaluator.run()
 
     preds_path = os.path.join(output_dir, "preds.json")
     _write_predictions(output_dir, preds_path)
 
     logger.info("Evaluation completed!")
-    print(json.dumps({"output_json": evaluator.output_path, "preds_json": preds_path}))
+    print(json.dumps({"preds_json": preds_path}))
 
 
 if __name__ == "__main__":

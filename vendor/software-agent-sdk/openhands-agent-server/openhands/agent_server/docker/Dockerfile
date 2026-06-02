@@ -27,6 +27,7 @@ ARG PORT=8000
 ####################################################################################
 FROM python:3.13-bookworm AS builder
 ARG USERNAME UID GID
+ARG TARGETARCH
 ENV UV_PROJECT_ENVIRONMENT=/agent-server/.venv
 ENV UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python
 
@@ -51,7 +52,15 @@ RUN --mount=type=cache,target=/home/${USERNAME}/.cache,uid=${UID},gid=${GID} \
     uv python install 3.13 && \
     uv venv --python-preference only-managed --python 3.13 .venv && \
     uv sync --frozen --no-editable --managed-python --extra boto3 && \
-    readlink -f .venv/bin/python | grep -q '^/agent-server/uv-managed-python/'
+    case "${TARGETARCH:-amd64}" in \
+      amd64) CRYPTOGRAPHY_WHEEL=https://files.pythonhosted.org/packages/e6/05/e8d0e6eb4f0d83365b3cb0e00eb3c484f7348db0266652ccd84632a3d58d/cryptography-46.0.6-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ;; \
+      arm64) CRYPTOGRAPHY_WHEEL=https://files.pythonhosted.org/packages/49/b3/dc27efd8dcc4bff583b3f01d4a3943cd8b5821777a58b3a6a5f054d61b79/cryptography-46.0.6-cp38-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl ;; \
+      *) CRYPTOGRAPHY_WHEEL= ;; \
+    esac && \
+    if [ -n "${CRYPTOGRAPHY_WHEEL}" ]; then \
+      uv pip install --python .venv/bin/python --reinstall --no-deps "${CRYPTOGRAPHY_WHEEL}"; \
+    fi && \
+    readlink -f .venv/bin/python | grep -q ^/agent-server/uv-managed-python/
 
 ####################################################################################
 # Binary Builder (binary mode)
@@ -59,10 +68,19 @@ RUN --mount=type=cache,target=/home/${USERNAME}/.cache,uid=${UID},gid=${GID} \
 ####################################################################################
 FROM builder AS binary-builder
 ARG USERNAME UID GID
+ARG TARGETARCH
 
 # We need --dev for pyinstaller
 RUN --mount=type=cache,target=/home/${USERNAME}/.cache,uid=${UID},gid=${GID} \
-    uv sync --frozen --dev --no-editable --extra boto3
+    uv sync --frozen --dev --no-editable --extra boto3 && \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) CRYPTOGRAPHY_WHEEL=https://files.pythonhosted.org/packages/e6/05/e8d0e6eb4f0d83365b3cb0e00eb3c484f7348db0266652ccd84632a3d58d/cryptography-46.0.6-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ;; \
+      arm64) CRYPTOGRAPHY_WHEEL=https://files.pythonhosted.org/packages/49/b3/dc27efd8dcc4bff583b3f01d4a3943cd8b5821777a58b3a6a5f054d61b79/cryptography-46.0.6-cp38-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl ;; \
+      *) CRYPTOGRAPHY_WHEEL= ;; \
+    esac && \
+    if [ -n "${CRYPTOGRAPHY_WHEEL}" ]; then \
+      uv pip install --python .venv/bin/python --reinstall --no-deps "${CRYPTOGRAPHY_WHEEL}"; \
+    fi
 
 RUN --mount=type=cache,target=/home/${USERNAME}/.cache,uid=${UID},gid=${GID} \
     uv run pyinstaller openhands-agent-server/openhands/agent_server/agent-server.spec

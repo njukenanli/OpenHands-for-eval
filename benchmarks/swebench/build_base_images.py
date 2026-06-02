@@ -56,14 +56,8 @@ AGENT_LAYER_DOCKERFILE = (
 
 
 def _get_repo_root() -> Path:
-    """Get the repository root using git."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return Path(result.stdout.strip())
+    """Return the benchmarks repository root independent of process cwd."""
+    return Path(__file__).resolve().parents[2]
 
 
 def _get_sdk_dockerfile() -> Path:
