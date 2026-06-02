@@ -1,9 +1,5 @@
 # Benchmarking OpenHands with any LLM
 
-```bash
-git clone https://github.com/SWE-bench-Live/OpenHands-for-eval
-```
-
 ## Prepare venv
 
 ```bash
