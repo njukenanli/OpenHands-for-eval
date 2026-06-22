@@ -201,9 +201,6 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# Workspace directory
-workspace/
-
 # IDE and editor directories
 .openhands/*
 !.openhands/setup.sh
